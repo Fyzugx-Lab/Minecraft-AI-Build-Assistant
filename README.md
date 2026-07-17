@@ -28,7 +28,8 @@ Unlike command-based builders, this mod:
 - Uses natural language prompts
 - Supports multiple AI providers
 - Requires explicit approval before execution
-- Runs inside a Groovy sandbox
+- Runs AI build scripts in a restricted Groovy sandbox
+- Places blocks via vanilla `/setblock` and `/fill` (requires cheats/OP)
 - Allows terrain-aware building
 
 ## Requirements
