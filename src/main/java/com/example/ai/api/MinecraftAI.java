@@ -1,9 +1,14 @@
 package com.example.ai.api;
 
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.command.permission.LeveledPermissionPredicate;
+import net.minecraft.command.permission.PermissionLevel;
+import net.minecraft.command.permission.PermissionPredicate;
 import net.minecraft.registry.Registries;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
@@ -14,22 +19,49 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * Build helpers used by AI Groovy scripts.
+ *
+ * <p>Placement goes through vanilla {@code /setblock} and {@code /fill} as the
+ * requesting player, so cheats/OP permission is required. This avoids bypassing
+ * Survival rules via direct {@code setBlockState}.
+ */
 public class MinecraftAI {
     private static ServerWorld world;
     private static BlockPos origin;
     private static float playerYaw;
     private static float playerPitch;
+    private static ServerPlayerEntity actor;
     
     public static void init(ServerWorld w, BlockPos o) {
-        init(w, o, 0f, 0f);
+        init(w, o, 0f, 0f, null);
     }
 
     public static void init(ServerWorld w, BlockPos o, float yaw, float pitch) {
+        init(w, o, yaw, pitch, null);
+    }
+
+    public static void init(ServerWorld w, BlockPos o, float yaw, float pitch, ServerPlayerEntity player) {
         world = w;
         origin = o;
         playerYaw = yaw;
         playerPitch = pitch;
-        System.out.println("[MinecraftAI] Initialized at " + o + " facing " + TerrainVision.compassFromYaw(yaw));
+        actor = player;
+        System.out.println("[MinecraftAI] Initialized at " + o + " facing " + TerrainVision.compassFromYaw(yaw)
+            + (player != null ? " as " + player.getName().getString() : ""));
+    }
+
+    public static boolean canExecuteBuildCommands(ServerPlayerEntity player) {
+        if (player == null) {
+            return false;
+        }
+
+        PermissionPredicate permissions = player.getPermissions();
+        if (permissions instanceof LeveledPermissionPredicate leveled) {
+            return leveled.getLevel().isAtLeast(PermissionLevel.GAMEMASTERS);
+        }
+
+        return false;
     }
     
     public static String getWorldInfo(Number radius) {
@@ -87,13 +119,12 @@ public class MinecraftAI {
     
     
     public static void placeBlock(Number x, Number y, Number z, String blockName) {
-        if (world == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
+        if (world == null || origin == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
             return;
         }
 
-        Block block = getBlock(blockName);
         BlockPos pos = origin.add(toInt(x), toInt(y), toInt(z));
-        schedulePlace(pos, block.getDefaultState(), blockName);
+        scheduleSetBlock(pos, blockName);
     }
 
     public static void placeBlock(String blockName, Number x, Number y, Number z) {
@@ -108,29 +139,14 @@ public class MinecraftAI {
         int ih = Math.max(1, Math.abs(toInt(h)));
         int il = Math.max(1, Math.abs(toInt(l)));
 
-        if (world == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
+        if (world == null || origin == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
             return;
         }
 
-        Block block = getBlock(blockName);
-        int count = 0;
-
-        for (int dx = 0; dx < iw; dx++) {
-            for (int dy = 0; dy < ih; dy++) {
-                for (int dz = 0; dz < il; dz++) {
-                    boolean isEdge = (dx == 0 || dx == iw - 1 ||
-                                     dy == 0 || dy == ih - 1 ||
-                                     dz == 0 || dz == il - 1);
-                    if (isEdge) {
-                        BlockPos pos = origin.add(ix + dx, iy + dy, iz + dz);
-                        schedulePlace(pos, block.getDefaultState(), blockName);
-                        count++;
-                    }
-                }
-            }
-        }
-
-        System.out.println("[AI] Queued box: " + count + " blocks of " + blockName);
+        BlockPos from = origin.add(ix, iy, iz);
+        BlockPos to = origin.add(ix + iw - 1, iy + ih - 1, iz + il - 1);
+        scheduleFill(from, to, blockName, "outline");
+        System.out.println("[AI] Queued /fill outline box of " + normalizeBlockId(blockName));
     }
 
     public static void placeBox(String blockName, Number x, Number y, Number z, Number w, Number h, Number l) {
@@ -141,18 +157,15 @@ public class MinecraftAI {
         int ix = toInt(x);
         int iy = toInt(y);
         int iz = toInt(z);
-        int ih = toInt(h);
+        int ih = Math.max(1, Math.abs(toInt(h)));
 
-        if (world == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
+        if (world == null || origin == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
             return;
         }
 
-        Block block = getBlock(blockName);
-
-        for (int dy = 0; dy < ih; dy++) {
-            BlockPos pos = origin.add(ix, iy + dy, iz);
-            schedulePlace(pos, block.getDefaultState(), blockName);
-        }
+        BlockPos from = origin.add(ix, iy, iz);
+        BlockPos to = origin.add(ix, iy + ih - 1, iz);
+        scheduleFill(from, to, blockName, "replace");
     }
 
     public static void placePillar(String blockName, Number x, Number y, Number z, Number h) {
@@ -163,21 +176,16 @@ public class MinecraftAI {
         int ix = toInt(x);
         int iy = toInt(y);
         int iz = toInt(z);
-        int iw = toInt(w);
-        int il = toInt(l);
+        int iw = Math.max(1, Math.abs(toInt(w)));
+        int il = Math.max(1, Math.abs(toInt(l)));
 
-        if (world == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
+        if (world == null || origin == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
             return;
         }
 
-        Block block = getBlock(blockName);
-
-        for (int dx = 0; dx < iw; dx++) {
-            for (int dz = 0; dz < il; dz++) {
-                BlockPos pos = origin.add(ix + dx, iy, iz + dz);
-                schedulePlace(pos, block.getDefaultState(), blockName);
-            }
-        }
+        BlockPos from = origin.add(ix, iy, iz);
+        BlockPos to = origin.add(ix + iw - 1, iy, iz + il - 1);
+        scheduleFill(from, to, blockName, "replace");
     }
 
     public static void placeFloor(String blockName, Number x, Number y, Number z, Number w, Number l) {
@@ -216,30 +224,22 @@ public class MinecraftAI {
         int ix = toInt(x);
         int iy = toInt(y);
         int iz = toInt(z);
-        int ih = toInt(h);
-        int il = toInt(l);
+        int ih = Math.max(1, Math.abs(toInt(h)));
+        int il = Math.max(1, Math.abs(toInt(l)));
 
-        if (world == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
+        if (world == null || origin == null || ForbiddenBlockRegistry.isForbidden(blockName)) {
             return;
         }
 
-        Block block = getBlock(blockName);
-
         String axis = normalizeWallDirection(direction);
         if ("x".equals(axis)) {
-            for (int dx = 0; dx < il; dx++) {
-                for (int dy = 0; dy < ih; dy++) {
-                    BlockPos pos = origin.add(ix + dx, iy + dy, iz);
-                    schedulePlace(pos, block.getDefaultState(), blockName);
-                }
-            }
+            BlockPos from = origin.add(ix, iy, iz);
+            BlockPos to = origin.add(ix + il - 1, iy + ih - 1, iz);
+            scheduleFill(from, to, blockName, "replace");
         } else if ("z".equals(axis)) {
-            for (int dz = 0; dz < il; dz++) {
-                for (int dy = 0; dy < ih; dy++) {
-                    BlockPos pos = origin.add(ix, iy + dy, iz + dz);
-                    schedulePlace(pos, block.getDefaultState(), blockName);
-                }
-            }
+            BlockPos from = origin.add(ix, iy, iz);
+            BlockPos to = origin.add(ix, iy + ih - 1, iz + il - 1);
+            scheduleFill(from, to, blockName, "replace");
         }
     }
 
@@ -436,22 +436,55 @@ public class MinecraftAI {
         int ih = Math.max(1, Math.abs(toInt(h)));
         int il = Math.max(1, Math.abs(toInt(l)));
 
-        if (world == null) {
+        if (world == null || origin == null) {
             return;
         }
 
-        for (int dx = 0; dx < iw; dx++) {
-            for (int dy = 0; dy < ih; dy++) {
-                for (int dz = 0; dz < il; dz++) {
-                    BlockPos pos = origin.add(ix + dx, iy + dy, iz + dz);
-                    schedulePlace(pos, Blocks.AIR.getDefaultState(), "minecraft:air");
-                }
-            }
-        }
+        BlockPos from = origin.add(ix, iy, iz);
+        BlockPos to = origin.add(ix + iw - 1, iy + ih - 1, iz + il - 1);
+        scheduleFill(from, to, "minecraft:air", "replace");
     }
 
-    private static void schedulePlace(BlockPos pos, BlockState state, String blockName) {
-        BuildTaskQueue.enqueue(() -> world.setBlockState(pos, state));
+    private static void scheduleSetBlock(BlockPos pos, String blockName) {
+        String blockId = normalizeBlockId(blockName);
+        BuildTaskQueue.enqueue(() -> executeBuildCommand(
+            "setblock " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " " + blockId + " replace"
+        ));
+    }
+
+    private static void scheduleFill(BlockPos from, BlockPos to, String blockName, String mode) {
+        String blockId = normalizeBlockId(blockName);
+        String fillMode = mode == null || mode.isBlank() ? "replace" : mode.trim().toLowerCase();
+        BuildTaskQueue.enqueue(() -> executeBuildCommand(
+            "fill "
+                + from.getX() + " " + from.getY() + " " + from.getZ() + " "
+                + to.getX() + " " + to.getY() + " " + to.getZ() + " "
+                + blockId + " " + fillMode
+        ));
+    }
+
+    private static void executeBuildCommand(String command) {
+        if (actor == null || !actor.isAlive()) {
+            System.out.println("[WARNING] No actor for build command: " + command);
+            return;
+        }
+
+        MinecraftServer server = actor.getEntityWorld().getServer();
+        if (server == null) {
+            return;
+        }
+
+        if (!canExecuteBuildCommands(actor)) {
+            System.out.println("[WARNING] Actor lacks permission for: " + command);
+            return;
+        }
+
+        ServerCommandSource source = actor.getCommandSource().withSilent();
+        try {
+            server.getCommandManager().parseAndExecute(source, command);
+        } catch (Exception exception) {
+            System.out.println("[ERROR] Build command failed: /" + command + " -> " + exception.getMessage());
+        }
     }
     
     
@@ -462,15 +495,24 @@ public class MinecraftAI {
         return value.intValue();
     }
 
-    private static Block getBlock(String blockName) {
-        if (!blockName.contains(":")) {
-            blockName = "minecraft:" + blockName;
+    private static String normalizeBlockId(String blockName) {
+        if (blockName == null || blockName.isBlank()) {
+            return "minecraft:stone";
         }
+        String trimmed = blockName.trim();
+        if (!trimmed.contains(":")) {
+            return "minecraft:" + trimmed.toLowerCase();
+        }
+        return trimmed.toLowerCase();
+    }
+
+    private static Block getBlock(String blockName) {
+        String id = normalizeBlockId(blockName);
         
         try {
-            Block block = Registries.BLOCK.get(Identifier.of(blockName));
-            if (block == Blocks.AIR) {
-                return Blocks.AIR;
+            Block block = Registries.BLOCK.get(Identifier.of(id));
+            if (block == Blocks.AIR && !id.equals("minecraft:air") && !id.equals("air")) {
+                return Blocks.STONE;
             }
             return block;
         } catch (Exception e) {

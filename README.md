@@ -17,10 +17,9 @@ Supports:
 
 ## Screenshots
 
-![Minecraft AI Build Assistant screenshot](docs/screenshots/showcase.png)
+![Minecraft AI Build Assistant](docs/screenshots/showcase.png)
 
-Screenshot files live in [`docs/screenshots/`](docs/screenshots/). For the best GitHub preview, upload `showcase.png` first.
-Hide chat, player names, coordinates, and API keys before capturing.
+Images live in [`docs/screenshots/`](docs/screenshots/). Avoid showing API keys, player names, or local file paths in screenshots.
 
 ## Why is this different?
 
@@ -195,11 +194,11 @@ Output: `build/libs/minecraft-ai-build-assistant-<version>.jar`
 
 Before uploading to GitHub or sharing a ZIP:
 
-1. **Include only source** — `src/`, `gradle/`, `gradlew*`, `build.gradle`, `settings.gradle`, `gradle.properties`, `LICENSE`, `README.md`, `CHANGELOG.md`, `config-examples/`, `docs/screenshots/showcase.png`, `.gitignore`
-2. **Never include** — `run/`, `build/`, `.gradle/`, `_decompiled/`, `_recovered/`, `_tools/`
-3. **Never include** — any `settings.json` containing a real API key (use `config-examples/settings.json.example` instead)
-4. **Verify** — search the upload for `sk-proj`, `sk-`, machine-specific paths (e.g. `C:\Users\...`), and Minecraft player names in comments or logs
-5. **Release JAR only** — attach `build/libs/minecraft-ai-build-assistant-<version>.jar` (not `*-sources.jar`, not the whole project folder)
+1. **Include only source** — `src/`, `gradle/`, `gradlew*`, `build.gradle`, `settings.gradle`, `gradle.properties`, `LICENSE`, `README.md`, `CHANGELOG.md`, `config-examples/`, `docs/screenshots/`, `.gitignore`, `.gitattributes`, `.github/` (optional)
+2. **Never include** — `run/`, `build/`, `.gradle/`, `_decompiled/`, `_recovered/`, `_tools/`, root `fabric.mod.json` (belongs under `src/main/resources/`), local `settings.json`, API keys
+3. **Never include** — `*-sources.jar`, recovery scripts under `tools/` (optional to omit)
+4. **Verify** — search the upload for `sk-proj`, `sk-`, absolute Windows paths, and Minecraft player names
+5. **Release JAR only** — attach `build/libs/minecraft-ai-build-assistant-<version>.jar`
 
 If an API key was ever saved locally, rotate it in the OpenAI dashboard before publishing.
 
@@ -210,5 +209,6 @@ If an API key was ever saved locally, rotate it in the OpenAI dashboard before p
 ## Notes
 
 - OpenAI requires an API key stored in local settings.
+- **Building requires cheats or operator permission (level 2).** Placement runs as vanilla `/setblock` and `/fill` for the approving player, so Survival without cheats will refuse builds.
 - In multiplayer, settings sync to the server; forbidden blocks are enforced on the server.
 - Build quality depends on the model and prompt; complex builds may need iteration.

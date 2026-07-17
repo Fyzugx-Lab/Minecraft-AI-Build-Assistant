@@ -43,10 +43,18 @@ public final class BuildApproval {
         ServerWorld world = (ServerWorld) player.getEntityWorld();
         BlockPos origin = pendingOrigin != null ? pendingOrigin : player.getBlockPos();
 
-        BuildTaskQueue.clear();
-        MinecraftAI.init(world, origin, player.getYaw(), player.getPitch());
+        if (!MinecraftAI.canExecuteBuildCommands(player)) {
+            AiNetworking.sendLog(player, "[AI] Build requires cheats/OP (permission level 2).");
+            AiNetworking.sendLog(player, "[AI] Enable cheats for this world, or run as an operator.");
+            AiNetworking.notify(player, "\u00a7c[AI] Cheats/OP required to place blocks.\u00a7r");
+            clearPending(player);
+            return;
+        }
 
-        AiNetworking.sendLog(player, "[AI] Building started...");
+        BuildTaskQueue.clear();
+        MinecraftAI.init(world, origin, player.getYaw(), player.getPitch(), player);
+
+        AiNetworking.sendLog(player, "[AI] Building started (via /setblock and /fill)...");
         AiNetworking.sendLog(player, "[AI] Origin: X=" + origin.getX() + " Y=" + origin.getY() + " Z=" + origin.getZ());
         System.out.println("[APPROVAL] Building approved by " + player.getName().getString() + " at " + origin);
 
@@ -62,14 +70,14 @@ public final class BuildApproval {
             return;
         }
 
-        int queuedBlocks = BuildTaskQueue.pendingCount();
-        if (queuedBlocks == 0) {
+        int queuedCommands = BuildTaskQueue.pendingCount();
+        if (queuedCommands == 0) {
             AiNetworking.sendLog(player, "[AI] Complete!");
             clearPending(player);
             return;
         }
 
-        AiNetworking.sendLog(player, "[AI] Placing " + queuedBlocks + " blocks...");
+        AiNetworking.sendLog(player, "[AI] Running " + queuedCommands + " build command(s)...");
         BuildTaskQueue.whenEmpty(() -> {
             AiNetworking.sendLog(player, "[AI] Complete!");
             clearPending(player);
